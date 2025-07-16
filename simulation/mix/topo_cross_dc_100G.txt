@@ -1,0 +1,67 @@
+46 6 46
+40 41 42 43 44 45
+0 40 100Gbps 5us 0.00
+1 40 100Gbps 5us 0.00
+2 40 100Gbps 5us 0.00
+3 40 100Gbps 5us 0.00
+4 40 100Gbps 5us 0.00
+5 40 100Gbps 5us 0.00
+6 40 100Gbps 5us 0.00
+7 40 100Gbps 5us 0.00
+8 40 100Gbps 5us 0.00
+9 40 100Gbps 5us 0.00
+10 41 100Gbps 5us 0.00
+11 41 100Gbps 5us 0.00
+12 41 100Gbps 5us 0.00
+13 41 100Gbps 5us 0.00
+14 41 100Gbps 5us 0.00
+15 41 100Gbps 5us 0.00
+16 41 100Gbps 5us 0.00
+17 41 100Gbps 5us 0.00
+18 41 100Gbps 5us 0.00
+19 41 100Gbps 5us 0.00
+20 42 100Gbps 5us 0.00
+21 42 100Gbps 5us 0.00
+22 42 100Gbps 5us 0.00
+23 42 100Gbps 5us 0.00
+24 42 100Gbps 5us 0.00
+25 42 100Gbps 5us 0.00
+26 42 100Gbps 5us 0.00
+27 42 100Gbps 5us 0.00
+28 42 100Gbps 5us 0.00
+29 42 100Gbps 5us 0.00
+30 43 100Gbps 20ms 0.00
+31 43 100Gbps 20ms 0.00
+32 43 100Gbps 20ms 0.00
+33 43 100Gbps 20ms 0.00
+34 43 100Gbps 20ms 0.00
+35 43 100Gbps 20ms 0.00
+36 43 100Gbps 20ms 0.00
+37 43 100Gbps 20ms 0.00
+38 43 100Gbps 20ms 0.00
+39 43 100Gbps 20ms 0.00
+42 44 100Gbps 5us 0.00
+43 45 100Gbps 5us 0.00
+40 44 100Gbps 5us 0.00
+42 45 100Gbps 5us 0.00
+41 45 100Gbps 5us 0.00
+43 44 100Gbps 5us 0.00
+
+# [total_node_num] [link_num]
+# links: [src_id] [dest_id] [bandwidth] [delay] [error_ratio]
+# Topology Graph:
+#    0-9   10-19 [Sender]
+#     | 10    |  10
+#     40     41  [ToR:enable record]
+#     |      |
+#     44     45
+#   10 |  x   | 10
+#     42     43  [ToR:enable record]
+#     | 10   | 10 (20ms)
+#   20-29  30-39 [Receiver]
+# dc 1 nodes: rackA (0-9) rackB (10-19)
+# dc 2 nodes: rack (20-29)
+# wan nodes: rack (30-39)
+# tor_switch: 40 41
+# dc switch: 40 41 42 43 44 45
+# wan switch:

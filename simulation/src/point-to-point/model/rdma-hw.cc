@@ -6,6 +6,7 @@
 #include "ns3/boolean.h"
 #include "ns3/uinteger.h"
 #include "ns3/double.h"
+#include "ns3/string.h"
 #include "ns3/data-rate.h"
 #include "ns3/pointer.h"
 #include "rdma-hw.h"
@@ -15,6 +16,9 @@
 #include <deque>
 #include <cmath>
 #include <algorithm>
+
+// (ip.Get() >> 8) & 0xffff
+#define ip_to_node_id(x) (((x) >> 8) & 0xffff)
 
 namespace ns3{
 
@@ -192,6 +196,16 @@ TypeId RdmaHw::GetTypeId (void)
 				DoubleValue(50.0 * 1000000000.0),
 				MakeDoubleAccessor(&RdmaHw::m_poseidon_max_rate),
 				MakeDoubleChecker<double>())
+		.AddAttribute("PoseidonMDStrategy",
+				"The md strategy for poseidon(ack or rtt)",
+				StringValue ("ack"),
+				MakeStringAccessor (&RdmaHw::m_poseidon_md_strategy),
+				MakeStringChecker())
+		.AddAttribute ("ExpCode",
+				"Indicate which experiment is running",
+				UintegerValue(0),
+				MakeUintegerAccessor(&RdmaHw::m_exp_code),
+				MakeUintegerChecker<uint32_t>())
 		;
 	return tid;
 }
@@ -255,22 +269,43 @@ void RdmaHw::AddQueuePair(uint64_t size, uint16_t pg, Ipv4Address sip, Ipv4Addre
 
 	// set init variables
 	DataRate m_bps = m_nic[nic_idx].dev->GetDataRate();
-	qp->m_rate = m_bps;
+	switch (m_exp_code)
+	{
+	case 1: // two flow line rate start convergence
+		qp->m_rate = m_bps;
+		break;
+	case 2: // start and exit
+		qp->m_rate = m_bps/2.0;
+		if (ip_to_node_id(qp->sip.Get()) == 2) {
+			qp->m_rate = m_bps;
+		}
+		break;
+	case 3:	// dc convergence
+		qp->m_rate = m_bps/100.0;
+		break;
+	case 4:	// mutihop
+		qp->m_rate = m_bps;
+		break;
+	default:
+		qp->m_rate = m_bps;
+		break;
+	}
+
 	qp->m_max_rate = m_bps;
 	if (m_cc_mode == 1){
 		qp->mlx.m_targetRate = m_bps;
 	}else if (m_cc_mode == 3){
-		qp->hp.m_curRate = m_bps;
+		qp->hp.m_curRate = qp->m_rate ;
 		if (m_multipleRate){
 			for (uint32_t i = 0; i < IntHeader::maxHop; i++)
-				qp->hp.hopState[i].Rc = m_bps;
+				qp->hp.hopState[i].Rc = qp->m_rate ;
 		}
 	}else if (m_cc_mode == 7){
-		qp->tmly.m_curRate = m_bps;
+		qp->tmly.m_curRate = qp->m_rate ;
 	}else if (m_cc_mode == 10){
-		qp->hpccPint.m_curRate = m_bps;
+		qp->hpccPint.m_curRate = qp->m_rate ;
 	} else if (m_cc_mode == 11) {
-		qp->poseidon.m_curRate= m_bps / 100.0;
+		qp->poseidon.m_curRate= qp->m_rate ;
 	}
 
 	// Notify Nic
@@ -437,6 +472,52 @@ int RdmaHw::ReceiveAck(Ptr<Packet> p, CustomHeader &ch){
 	}
 	if (ch.l3Prot == 0xFD) // NACK
 		RecoverQueue(qp);
+
+
+	
+	switch (m_exp_code)
+	{
+	case 2: // Config: Start and Exit experiment
+		if (ip_to_node_id(qp->sip.Get()) == 2) {
+			if (Simulator::Now().GetTimeStep() > 5e9) {
+				qp->m_size = qp->snd_una;
+				// QpComplete(qp);
+			}
+		}
+		break;
+	case 3: // Config: datacenter convergence experiment
+		if (ip_to_node_id(qp->sip.Get()) == 0) {
+			if (Simulator::Now().GetTimeStep() > 9e9) {
+				QpComplete(qp);
+			}
+		}
+		if (ip_to_node_id(qp->sip.Get()) == 1) {
+			if (Simulator::Now().GetTimeStep() > 8e9) {
+				QpComplete(qp);
+			}
+		}
+		if (ip_to_node_id(qp->sip.Get()) == 2) {
+			if (Simulator::Now().GetTimeStep() > 7e9) {
+				QpComplete(qp);
+			}
+		}
+		if (ip_to_node_id(qp->sip.Get()) == 3) {
+			if (Simulator::Now().GetTimeStep() > 6e9) {
+				QpComplete(qp);
+			}
+		}
+		break;
+	case 4: // Config: mutihop experiment
+		if (ip_to_node_id(qp->sip.Get()) == 2) {
+			if (Simulator::Now().GetTimeStep() > 25e8) {
+				qp->m_size = qp->snd_una;
+				// QpComplete(qp);
+			}
+		}
+		break;
+	default:
+		break;
+	}
 
 	// handle cnp
 	if (cnp){
@@ -642,7 +723,7 @@ void RdmaHw::ChangeRate(Ptr<RdmaQueuePair> qp, DataRate new_rate){
 void RdmaHw::UpdateAlphaMlx(Ptr<RdmaQueuePair> q){
 	#if PRINT_LOG
 	//std::cout << Simulator::Now() << " alpha update:" << m_node->GetId() << ' ' << q->mlx.m_alpha << ' ' << (int)q->mlx.m_alpha_cnp_arrived << '\n';
-	//printf("%lu alpha update: %08x %08x %u %u %.6lf->", Simulator::Now().GetTimeStep(), q->sip.Get(), q->dip.Get(), q->sport, q->dport, q->mlx.m_alpha);
+	//printf("%lu alpha update: %d %d %u %u %.6lf->", Simulator::Now().GetTimeStep(), ip_to_node_id(q->sip.Get()), ip_to_node_id(q->dip.Get()), q->sport, q->dport, q->mlx.m_alpha);
 	#endif
 	if (q->mlx.m_alpha_cnp_arrived){
 		q->mlx.m_alpha = (1 - m_g)*q->mlx.m_alpha + m_g; 	//binary feedback
@@ -680,7 +761,7 @@ void RdmaHw::CheckRateDecreaseMlx(Ptr<RdmaQueuePair> q){
 	ScheduleDecreaseRateMlx(q, 0);
 	if (q->mlx.m_decrease_cnp_arrived){
 		#if PRINT_LOG
-		printf("%lu rate dec: %08x %08x %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), q->sip.Get(), q->dip.Get(), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
+		printf("%lu rate dec: %d %d %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), ip_to_node_id(q->sip.Get()), ip_to_node_id(q->dip.Get()), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
 		#endif
 		bool clamp = true;
 		if (!m_EcnClampTgtRate){
@@ -722,7 +803,7 @@ void RdmaHw::RateIncEventMlx(Ptr<RdmaQueuePair> q){
 
 void RdmaHw::FastRecoveryMlx(Ptr<RdmaQueuePair> q){
 	#if PRINT_LOG
-	printf("%lu fast recovery: %08x %08x %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), q->sip.Get(), q->dip.Get(), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
+	printf("%lu fast recovery: %d %d %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), ip_to_node_id(q->sip.Get()), ip_to_node_id(q->dip.Get()), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
 	#endif
 	q->m_rate = (q->m_rate / 2) + (q->mlx.m_targetRate / 2);
 	#if PRINT_LOG
@@ -731,7 +812,7 @@ void RdmaHw::FastRecoveryMlx(Ptr<RdmaQueuePair> q){
 }
 void RdmaHw::ActiveIncreaseMlx(Ptr<RdmaQueuePair> q){
 	#if PRINT_LOG
-	printf("%lu active inc: %08x %08x %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), q->sip.Get(), q->dip.Get(), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
+	printf("%lu active inc: %d %d %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), ip_to_node_id(q->sip.Get()), ip_to_node_id(q->dip.Get()), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
 	#endif
 	// get NIC
 	uint32_t nic_idx = GetNicIdxOfQp(q);
@@ -747,7 +828,7 @@ void RdmaHw::ActiveIncreaseMlx(Ptr<RdmaQueuePair> q){
 }
 void RdmaHw::HyperIncreaseMlx(Ptr<RdmaQueuePair> q){
 	#if PRINT_LOG
-	printf("%lu hyper inc: %08x %08x %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), q->sip.Get(), q->dip.Get(), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
+	printf("%lu hyper inc: %d %d %u %u (%0.3lf %.3lf)->", Simulator::Now().GetTimeStep(), ip_to_node_id(q->sip.Get()), ip_to_node_id(q->dip.Get()), q->sport, q->dport, q->mlx.m_targetRate.GetBitRate() * 1e-9, q->m_rate.GetBitRate() * 1e-9);
 	#endif
 	// get NIC
 	uint32_t nic_idx = GetNicIdxOfQp(q);
@@ -786,7 +867,17 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 	uint32_t next_seq = qp->snd_nxt;
 	uint64_t rtt = Simulator::Now().GetTimeStep() - ch.ack.ih.pts;
 	qp->m_rtt = rtt;
-	bool read = (rand() % 250 == 99);
+	int sip = ip_to_node_id(qp->sip.Get());
+	bool read = (rand() % 25 == 12);
+	switch (m_exp_code)
+	{
+	case 4: // Config: mutihop experiment
+		read = read && (sip == 0);
+        break;
+	default:
+		break;
+	}
+	// bool read = 1;
 	if (qp->poseidon.m_lastUpdateSeq == 0) { // first RTT
 		qp->poseidon.m_lastUpdateSeq = next_seq;
 		qp->poseidon.m_lastUpdateTime = 0;
@@ -817,26 +908,26 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 
 				// record the queue length for ports
 				int port = -1;
-				if (qp->sip.Get() == 0x0b000001) {
+				if (ip_to_node_id(qp->sip.Get()) == 0) {
 					if (i == 0) port = 0;
 					else if (i == 1) port = 1;
 					else if (i == 2) port = 2;
-				} else if (qp->sip.Get() == 0x0b002001) {
+				} else if (ip_to_node_id(qp->sip.Get()) == 32) {
 					if (i == 0) port = 3;
-					else if (i == 1) port = 1;
-					else if (i == 2) port = 2;
-				} else if (qp->sip.Get() == 0x0b003001) {
-					if (i == 0) port = 4;
-					else if (i == 1) port = 1;
-					else if (i == 2) port = 2; 
-				} else if (qp->sip.Get() == 0x0b000101) {
-					if (i == 0) port = 0;
-					else if (i == 1) port = 5;
-					else if (i == 2) port = 7; 
-				} else if (qp->sip.Get() == 0x0b000201) {
-					if (i == 0) port = 0;
-					else if (i == 1) port = 6;
+					else if (i == 1) port = 4;
+					else if (i == 2) port = 5;
+				} else if (ip_to_node_id(qp->sip.Get()) == 48) {
+					if (i == 0) port = 6;
+					else if (i == 1) port = 7;
 					else if (i == 2) port = 8; 
+				} else if (ip_to_node_id(qp->sip.Get()) == 1) {
+					if (i == 0) port = 9;
+					else if (i == 1) port = 10;
+					else if (i == 2) port = 11; 
+				} else if (ip_to_node_id(qp->sip.Get()) == 2) {
+					if (i == 0) port = 12;
+					else if (i == 1) port = 13;
+					else if (i == 2) port = 14; 
 				}
 				if (read) {
 					printf("Port: %lu %d %.10lf\n", Simulator::Now().GetTimeStep(), port, signal);
@@ -853,11 +944,16 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 					mpd = qp->poseidon.signals[i];
 				}
 
+				// find the mpd of non-int rest path = E2E delay - MPD
+				if (qp->m_rtt - qp->poseidon.signals[i] > mpd) {
+					mpd = qp->m_rtt - qp->poseidon.signals[i];
+				}
+
 				qp->poseidon.hop[i] = ih.hop[i];
 			}
 
 			if (read) {
-				printf("Queue: %lu %08x %.10lf\n", Simulator::Now().GetTimeStep(), qp->sip.Get(), queue_length_total);
+				printf("Queue: %lu %d %.10lf\n", Simulator::Now().GetTimeStep(), ip_to_node_id(qp->sip.Get()), queue_length_total);
 			}
 
 			// calculate update ratio
@@ -866,16 +962,24 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 			else if (update_ratio < 0.4) update_ratio = 0.4;
 			
 			if (read) {
+				printf("%lu ",Simulator::Now().GetTimeStep());
+				printf("Flow: %d ", ip_to_node_id(qp->sip.Get()));
 				printf("MPD: %.10lf ", mpd);
-				printf("Target: %.10lf\n", mpt);
+				printf("Target: %.10lf ", mpt);
 				printf("Update: %.10lf ", update_ratio);
-				printf("RTT: %.10lf us\n", rtt / 1000.0);
-				printf("Bitrate: %.10lf ", qp->poseidon.m_curRate.GetBitRate() * 1.0);
-				printf("CWND: %f\n", cwnd);
+				printf("RTT: %.10lf us ", rtt / 1000.0);
+				printf("CWND: %f ", cwnd);
 			}
 
 			if (update_ratio < 1.0) {  // multiplicative decrease
 				bool use_per_rtt_md = false;
+				if (m_poseidon_md_strategy.compare("rtt") == 0) {
+					use_per_rtt_md = true;
+				} else if (m_poseidon_md_strategy.compare("ack") == 0) {
+					use_per_rtt_md = false;
+				} else {
+					printf("poseidon md strategy invalid: %s", m_poseidon_md_strategy.c_str());
+				}
 				if (use_per_rtt_md) {
 					if (Simulator::Now().GetTimeStep() - qp->poseidon.m_lastUpdateTime >= rtt) {
 						// printf("MD operation: %lu - %lu >= %lu\n", Simulator::Now().GetTimeStep(), qp->poseidon.m_lastUpdateTime, rtt);
@@ -890,10 +994,6 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 				update_ratio = 1 + (update_ratio - 1) / cwnd;
 			}
 			
-			if (read) {
-				printf("ActualUpdate: %.10f\n", update_ratio);
-			}
-			
 			DataRate new_rate = qp->poseidon.m_curRate * update_ratio;
 			if (new_rate < m_minRate)
 				new_rate = m_minRate;
@@ -901,14 +1001,20 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 				new_rate = qp->m_max_rate;  // qp->m_max_rate;			
 
 			if (read) {
-				printf("SMPD: %lu %08x %.10lf\n", Simulator::Now().GetTimeStep(), qp->sip.Get(), mpd);
+				printf("ActualUpdate: %.10f ", update_ratio);
+				printf("ChangeRate: %.10lf -> %.10lf \n", qp->poseidon.m_curRate.GetBitRate() * 1.0, new_rate.GetBitRate() * 1.0);
+			}
+
+
+			if (read) {
+				printf("SMPD: %lu %d %.10lf\n", Simulator::Now().GetTimeStep(), ip_to_node_id(qp->sip.Get()), mpd);
 			}
 
 			ChangeRate(qp, new_rate);
 			qp->poseidon.m_curRate = new_rate;
 
 			if (read) {
-				printf("Rate: %lu %08x %.10lf\n", Simulator::Now().GetTimeStep(), qp->sip.Get(), new_rate.GetBitRate()*1e-9);
+				printf("Rate: %lu %d %.10lf\n", Simulator::Now().GetTimeStep(), ip_to_node_id(qp->sip.Get()), new_rate.GetBitRate()*1e-9);
 			}
 		}
 		if (next_seq > qp->poseidon.m_lastUpdateSeq)
@@ -941,7 +1047,7 @@ void RdmaHw::UpdateRateHp(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeader &ch
 			qp->hp.hop[i] = ih.hop[i];
 		#if PRINT_LOG
 		if (print){
-			printf("%lu %s %08x %08x %u %u [%u,%u,%u]", Simulator::Now().GetTimeStep(), fast_react? "fast" : "update", qp->sip.Get(), qp->dip.Get(), qp->sport, qp->dport, qp->hp.m_lastUpdateSeq, ch.ack.seq, next_seq);
+			printf("%lu %s %d %d %u %u [%u,%u,%u]", Simulator::Now().GetTimeStep(), fast_react? "fast" : "update", ip_to_node_id(qp->sip.Get()), ip_to_node_id(qp->dip.Get()), qp->sport, qp->dport, qp->hp.m_lastUpdateSeq, ch.ack.seq, next_seq);
 			for (uint32_t i = 0; i < ih.nhop; i++)
 				printf(" %u %lu %lu", ih.hop[i].GetQlen(), ih.hop[i].GetBytes(), ih.hop[i].GetTime());
 			printf("\n");
@@ -955,7 +1061,7 @@ void RdmaHw::UpdateRateHp(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeader &ch
 			bool inStable = false;
 			#if PRINT_LOG
 			if (print)
-				printf("%lu %s %08x %08x %u %u [%u,%u,%u]", Simulator::Now().GetTimeStep(), fast_react? "fast" : "update", qp->sip.Get(), qp->dip.Get(), qp->sport, qp->dport, qp->hp.m_lastUpdateSeq, ch.ack.seq, next_seq);
+				printf("%lu %s %d %d %u %u [%u,%u,%u]", Simulator::Now().GetTimeStep(), fast_react? "fast" : "update", ip_to_node_id(qp->sip.Get()), ip_to_node_id(qp->dip.Get()), qp->sport, qp->dport, qp->hp.m_lastUpdateSeq, ch.ack.seq, next_seq);
 			#endif
 			// check each hop
 			double U = 0;
@@ -1182,7 +1288,7 @@ void RdmaHw::HandleAckDctcp(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeader &
 	qp->dctcp.m_ecnCnt += (cnp > 0);
 	if (ack_seq > qp->dctcp.m_lastUpdateSeq){ // if full RTT feedback is ready, do alpha update
 		#if PRINT_LOG
-		printf("%lu %s %08x %08x %u %u [%u,%u,%u] %.3lf->", Simulator::Now().GetTimeStep(), "alpha", qp->sip.Get(), qp->dip.Get(), qp->sport, qp->dport, qp->dctcp.m_lastUpdateSeq, ch.ack.seq, qp->snd_nxt, qp->dctcp.m_alpha);
+		printf("%lu %s %d %d %u %u [%u,%u,%u] %.3lf->", Simulator::Now().GetTimeStep(), "alpha", ip_to_node_id(qp->sip.Get()), ip_to_node_id(qp->dip.Get()), qp->sport, qp->dport, qp->dctcp.m_lastUpdateSeq, ch.ack.seq, qp->snd_nxt, qp->dctcp.m_alpha);
 		#endif
 		new_batch = true;
 		if (qp->dctcp.m_lastUpdateSeq == 0){ // first RTT
@@ -1212,7 +1318,7 @@ void RdmaHw::HandleAckDctcp(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeader &
 	// check if need to reduce rate: ECN and not in CWR
 	if (cnp && qp->dctcp.m_caState == 0){
 		#if PRINT_LOG
-		printf("%lu %s %08x %08x %u %u %.3lf->", Simulator::Now().GetTimeStep(), "rate", qp->sip.Get(), qp->dip.Get(), qp->sport, qp->dport, qp->m_rate.GetBitRate()*1e-9);
+		printf("%lu %s %d %d %u %u %.3lf->", Simulator::Now().GetTimeStep(), "rate", ip_to_node_id(qp->sip.Get()), ip_to_node_id(qp->dip.Get()), qp->sport, qp->dport, qp->m_rate.GetBitRate()*1e-9);
 		#endif
 		qp->m_rate = std::max(m_minRate, qp->m_rate * (1 - qp->dctcp.m_alpha / 2));
 		#if PRINT_LOG

@@ -2,6 +2,11 @@ import argparse
 import sys
 import os
 
+# experiment code list
+# 1. {two flow}-{line rate start}
+# 2. {start and exit}-{3 flows}-{additional flow start at 3s exit at 5s} 2
+# 3. {convergence in dc}-{2s-9s}-{4 flows}
+
 config_template="""ENABLE_QCN 1
 USE_DYNAMIC_PFC_THRESHOLD 1
 
@@ -10,11 +15,13 @@ PACKET_PAYLOAD_SIZE 1000
 TOPOLOGY_FILE mix/{topo}.txt
 FLOW_FILE mix/{trace}.txt
 TRACE_FILE mix/trace.txt
-TRACE_OUTPUT_FILE mix/mix_{topo}_{trace}_{cc}{failure}.tr
-FCT_OUTPUT_FILE mix/fct_{topo}_{trace}_{cc}{failure}.txt
-PFC_OUTPUT_FILE mix/pfc_{topo}_{trace}_{cc}{failure}.txt
+TRACE_OUTPUT_FILE ./results/trace/{out_name}.txt
+FCT_OUTPUT_FILE ./results/fct/{out_name}.txt
+PFC_OUTPUT_FILE ./results/pfc/{out_name}.txt
 
-SIMULATOR_STOP_TIME 2.05
+SIMULATOR_STOP_TIME {simulation_time}
+
+EXP_CODE {exp_code}
 
 CC_MODE {mode}
 ALPHA_RESUME_INTERVAL {t_alpha}
@@ -34,7 +41,7 @@ L2_ACK_INTERVAL 1
 L2_BACK_TO_ZERO 0
 
 HAS_WIN {has_win}
-GLOBAL_T 1
+GLOBAL_T 0
 VAR_WIN {vwin}
 FAST_REACT {us}
 U_TARGET {u_tgt}
@@ -57,13 +64,14 @@ KMAX_MAP {kmax_map}
 KMIN_MAP {kmin_map}
 PMAX_MAP {pmax_map}
 BUFFER_SIZE {buffer_size}
-QLEN_MON_FILE mix/qlen_{topo}_{trace}_{cc}{failure}.txt
+QLEN_MON_FILE ./results/qlen/{out_name}.txt
 QLEN_MON_START 2000000000
 QLEN_MON_END 3000000000
 
 POSEIDON_M {poseidon_m}
 POSEIDON_MIN_RATE {poseidon_min_rate}
 POSEIDON_MAX_RATE {poseidon_max_rate}
+POSEIDON_MD_STRATEGY {poseidon_md_strategy}
 """
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description='run simulation')
@@ -80,6 +88,11 @@ if __name__ == "__main__":
 	parser.add_argument('--enable_tr', dest='enable_tr', action = 'store', type=int, default=0, help="enable packet-level events dump")
 	parser.add_argument('--poseidon_m', dest='poseidon_m', action = 'store', type=float, default=0.01, help="Poseidon's parameter m")
 	parser.add_argument('--poseidon_min_rate', dest='poseidon_min_rate', action = 'store', type=float, default=0.1, help="Poseidon's min rate")
+	parser.add_argument('--poseidon_md_strategy', dest='poseidon_md_strategy', action = 'store', default='ack', help="Poseidon's md strategy per ack or per rtt")
+	parser.add_argument('--simulation_time', dest='simulation_time', action = 'store', type=float, default=2.05, help="The end time of this simulation")
+	parser.add_argument('--exp_code', dest='exp_code', action = 'store', type=int, default=0, help="The experiment type of this simulation")
+	parser.add_argument('--out_name', dest='out_name', action = 'store', default='', help="The output filename")
+	parser.add_argument('--has_win', dest='has_win', action = 'store',type=int, default = 1, help="Bound the inflight bytes")
 	args = parser.parse_args()
 
 	topo=args.topo
@@ -95,12 +108,21 @@ if __name__ == "__main__":
 	poseidon_m = args.poseidon_m
 	poseidon_min_rate = args.poseidon_min_rate  * 1000000000.0
 	poseidon_max_rate = float(bw) * 1000000000.0
+	poseidon_md_strategy = args.poseidon_md_strategy
+	simulation_time = args.simulation_time
+	exp_code = args.exp_code
+	has_win = args.has_win
+	out_name = args.out_name
+	if out_name == '':
+		print("must have out_name arg")
+		sys.exit(1)
+	
 
 	failure = ''
 	if args.down != '0 0 0':
 		failure = '_down'
 
-	config_name = "mix/config_%s_%s_%s%s.txt"%(topo, trace, args.cc, failure)
+	config_name = "mix/gen/config_%s.txt"%(out_name)
 
 	kmax_map = "2 %d %d %d %d"%(bw*1000000000, 400*bw/25, bw*4*1000000000, 400*bw*4/25)
 	kmin_map = "2 %d %d %d %d"%(bw*1000000000, 100*bw/25, bw*4*1000000000, 100*bw*4/25)
@@ -110,13 +132,13 @@ if __name__ == "__main__":
 		hai = 50 * bw /25
 
 		if args.cc == "dcqcn":
-			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=0, vwin=0, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 		elif args.cc == "dcqcn_paper":
-			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=50, t_dec=50, t_inc=55, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=0, vwin=0, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=50, t_dec=50, t_inc=55, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 		elif args.cc == "dcqcn_vwin":
-			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=1, vwin=1, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 		elif args.cc == "dcqcn_paper_vwin":
-			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=50, t_dec=50, t_inc=55, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=1, vwin=1, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+			config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=1, t_alpha=50, t_dec=50, t_inc=55, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	elif args.cc == "hp":
 		ai = 10 * bw / 25;
 		if args.hpai > 0:
@@ -128,10 +150,10 @@ if __name__ == "__main__":
 			cc += "mi%d"%mi
 		if args.hpai > 0:
 			cc += "ai%d"%ai
-		config_name = "mix/config_%s_%s_%s%s.txt"%(topo, trace, cc, failure)
-		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=cc, mode=3, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=1, vwin=1, us=1, u_tgt=u_tgt, mi=mi, int_multi=int_multi, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+		config_name = "mix/gen/config_%s_%s_%s%s.txt"%(topo, trace, cc, failure)
+		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=cc, mode=3, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=1, u_tgt=u_tgt, mi=mi, int_multi=int_multi, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	elif args.cc == "poseidon":
-		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=11, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=1, hai=1, dctcp_ai=1000, has_win=1, vwin=1, us=1, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=11, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=1, hai=1, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=1, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	elif args.cc == "dctcp":
 		ai = 10 # ai is useless for dctcp
 		hai = ai  # also useless
@@ -139,15 +161,15 @@ if __name__ == "__main__":
 		kmax_map = "2 %d %d %d %d"%(bw*1000000000, 30*bw/10, bw*4*1000000000, 30*bw*4/10)
 		kmin_map = "2 %d %d %d %d"%(bw*1000000000, 30*bw/10, bw*4*1000000000, 30*bw*4/10)
 		pmax_map = "2 %d %.2f %d %.2f"%(bw*1000000000, 1.0, bw*4*1000000000, 1.0)
-		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=8, t_alpha=1, t_dec=4, t_inc=300, g=0.0625, ai=ai, hai=hai, dctcp_ai=dctcp_ai, has_win=1, vwin=1, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=8, t_alpha=1, t_dec=4, t_inc=300, g=0.0625, ai=ai, hai=hai, dctcp_ai=dctcp_ai, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	elif args.cc == "timely":
 		ai = 10 * bw / 10;
 		hai = 50 * bw / 10;
-		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=7, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=0, vwin=0, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=7, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	elif args.cc == "timely_vwin":
 		ai = 10 * bw / 10;
 		hai = 50 * bw / 10;
-		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=7, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=1, vwin=1, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=args.cc, mode=7, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=0, u_tgt=u_tgt, mi=mi, int_multi=1, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=1, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	elif args.cc == "hpccPint":
 		ai = 10 * bw / 25;
 		if args.hpai > 0:
@@ -161,8 +183,8 @@ if __name__ == "__main__":
 			cc += "ai%d"%ai
 		cc += "log%.3f"%pint_log_base
 		cc += "p%.3f"%pint_prob
-		config_name = "mix/config_%s_%s_%s%s.txt"%(topo, trace, cc, failure)
-		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=cc, mode=10, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=1, vwin=1, us=1, u_tgt=u_tgt, mi=mi, int_multi=int_multi, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate)
+		config_name = "mix/gen/config_%s_%s_%s%s.txt"%(topo, trace, cc, failure)
+		config = config_template.format(bw=bw, trace=trace, topo=topo, cc=cc, mode=10, t_alpha=1, t_dec=4, t_inc=300, g=0.00390625, ai=ai, hai=hai, dctcp_ai=1000, has_win=has_win, vwin=has_win, us=1, u_tgt=u_tgt, mi=mi, int_multi=int_multi, pint_log_base=pint_log_base, pint_prob=pint_prob, ack_prio=0, link_down=args.down, failure=failure, kmax_map=kmax_map, kmin_map=kmin_map, pmax_map=pmax_map, buffer_size=bfsz, enable_tr=enable_tr, poseidon_m=poseidon_m, poseidon_min_rate=poseidon_min_rate, poseidon_max_rate=poseidon_max_rate, simulation_time=simulation_time, poseidon_md_strategy=poseidon_md_strategy, exp_code=exp_code, out_name=out_name)
 	else:
 		print("unknown cc:", args.cc)
 		sys.exit(1)
@@ -170,4 +192,4 @@ if __name__ == "__main__":
 	with open(config_name, "w") as file:
 		file.write(config)
 	
-	os.system("./waf --run 'scratch/third %s'"%(config_name))
+	os.system("./waf --run 'scratch/third %s' > ./results/data/%s.txt" % (config_name, out_name))

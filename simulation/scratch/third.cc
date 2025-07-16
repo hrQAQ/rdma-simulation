@@ -43,6 +43,7 @@ using namespace std;
 NS_LOG_COMPONENT_DEFINE("GENERIC_SIMULATION");
 
 uint32_t cc_mode = 1;
+uint32_t experiment_code = 0;
 bool enable_qcn = true, use_dynamic_pfc_threshold = true;
 uint32_t packet_payload_size = 1000, l2_chunk_size = 0, l2_ack_interval = 0;
 double pause_time = 5, simulator_stop_time = 3.01;
@@ -88,6 +89,7 @@ unordered_map<uint64_t, double> rate2pmax;
 double poseidon_para_m = 0.25;
 double poseidon_min_rate = 0.1 * 1000000000.0;
 double poseidon_max_rate = 100 * 1000000000.0;
+std::string poseidon_md_strategy = "ack";
 
 /************************************************
  * Runtime varibles
@@ -139,10 +141,16 @@ void ReadFlowInput(){
 void ScheduleFlowInputs(){
 	while (flow_input.idx < flow_num && Seconds(flow_input.start_time) == Simulator::Now()){
 		uint32_t port = portNumder[flow_input.src][flow_input.dst]++; // get a new port number 
-		RdmaClientHelper clientHelper(flow_input.pg, serverAddress[flow_input.src], serverAddress[flow_input.dst], port, flow_input.dport, flow_input.maxPacketCount, has_win?(global_t==1?maxBdp:pairBdp[n.Get(flow_input.src)][n.Get(flow_input.dst)]):0, global_t==1?maxRtt:pairRtt[flow_input.src][flow_input.dst]);
+		uint64_t flow_size;
+		if (flow_input.maxPacketCount == 0) {
+			flow_size = UINT64_MAX;
+		} else {
+			flow_size = (uint64_t)flow_input.maxPacketCount * (uint64_t)packet_payload_size;
+		}
+		RdmaClientHelper clientHelper(flow_input.pg, serverAddress[flow_input.src], serverAddress[flow_input.dst], port, flow_input.dport, flow_size, has_win?(global_t==1?maxBdp:pairBdp[n.Get(flow_input.src)][n.Get(flow_input.dst)]):0, global_t==1?maxRtt:pairRtt[flow_input.src][flow_input.dst]);
 		ApplicationContainer appCon = clientHelper.Install(n.Get(flow_input.src));
+		printf("src: %u, window: %u, basertt: %lu\n",flow_input.src, has_win?(global_t==1?maxBdp:pairBdp[n.Get(flow_input.src)][n.Get(flow_input.dst)]):0,global_t==1?maxRtt:pairRtt[flow_input.src][flow_input.dst]);
 		appCon.Start(Time(0));
-
 		// get the next flow input
 		flow_input.idx++;
 		ReadFlowInput();
@@ -667,6 +675,14 @@ int main(int argc, char *argv[])
 				conf >> poseidon_max_rate;
 				std::cout << "POSEIDON_MAX_RATE\t\t\t\t" << poseidon_max_rate << '\n';
 			}
+			else if (key.compare("POSEIDON_MD_STRATEGY") == 0){
+				conf >> poseidon_md_strategy;
+				std::cout << "POSEIDON_MD_STRATEGY\t\t\t\t" << poseidon_md_strategy << '\n';
+			}
+			else if (key.compare("EXP_CODE") == 0) {
+				conf >> experiment_code;
+				std::cout << "EXPERIMENT_CODE\t\t\t\t" << experiment_code << '\n';
+			}
 			fflush(stdout);
 		}
 		conf.close();
@@ -876,6 +892,7 @@ int main(int argc, char *argv[])
 		if (n.Get(i)->GetNodeType() == 0){ // is server
 			// create RdmaHw
 			Ptr<RdmaHw> rdmaHw = CreateObject<RdmaHw>();
+			rdmaHw->SetAttribute("ExpCode", UintegerValue(experiment_code));
 			rdmaHw->SetAttribute("ClampTargetRate", BooleanValue(clamp_target_rate));
 			rdmaHw->SetAttribute("AlphaResumInterval", DoubleValue(alpha_resume_interval));
 			rdmaHw->SetAttribute("RPTimer", DoubleValue(rp_timer));
@@ -901,6 +918,7 @@ int main(int argc, char *argv[])
 			rdmaHw->SetAttribute("PoseidonParaM", DoubleValue(poseidon_para_m));
 			rdmaHw->SetAttribute("PoseidonMinRate", DoubleValue(poseidon_min_rate));
 			rdmaHw->SetAttribute("PoseidonMaxRate", DoubleValue(poseidon_max_rate));
+			rdmaHw->SetAttribute("PoseidonMDStrategy", StringValue(poseidon_md_strategy));
 			rdmaHw->SetPintSmplThresh(pint_prob);
 			// create and install RdmaDriver
 			Ptr<RdmaDriver> rdma = CreateObject<RdmaDriver>();
@@ -956,6 +974,10 @@ int main(int argc, char *argv[])
 	for (uint32_t i = 0; i < node_num; i++){
 		if (n.Get(i)->GetNodeType() == 1){ // switch
 			Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));
+			if (i == 13) {
+				printf("Switch %d is configured with Brownfield, not enable INT\n", i);
+				cc_mode = 0; // brownfield
+			}
 			sw->SetAttribute("CcMode", UintegerValue(cc_mode));
 			sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
 		}
@@ -1041,6 +1063,6 @@ int main(int argc, char *argv[])
 	fclose(trace_output);
 
 	endt = clock();
-	std::cout << (double)(endt - begint) / CLOCKS_PER_SEC << "\n";
+	std::cout << "Simulation Done, costing: "<< (double)(endt - begint) / CLOCKS_PER_SEC << "\n";
 
 }

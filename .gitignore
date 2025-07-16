@@ -38,3 +38,13 @@ simulation/.waf*
 *.exe
 *.out
 *.app
+
+
+# output
+simulation/results/
+
+simulation/mix/fct*
+simulation/mix/pfc*
+simulation/mix/qlen*
+*.tr
+simulation/mix/gen/config*

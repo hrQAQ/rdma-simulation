@@ -1,10 +1,10 @@
 rm ./data/*
+rm ./fct/*
 rm ./mpd/*
 rm ./rate/*
+rm ./pfc/*
+rm ./qlen/*
 rm ./signal/*
 rm ./smoothed_signal/*
-rm ../mix/pfc_*
-rm ../mix/config_p*
-rm ../mix/fct_*
-rm ../mix/mix_*
-rm ../mix/qlen_*
+rm ./trace/*
+rm ./mix/config_topo*
