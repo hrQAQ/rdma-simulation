@@ -965,9 +965,9 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 				}
 
 				// Brownfield Setting: find the mpd of non-int rest path = E2E delay - MPD
-				if (qp->m_rtt - qp->poseidon.signals[i] > mpd) {
-					mpd = qp->m_rtt - qp->poseidon.signals[i];
-				}
+				// if (qp->m_rtt - qp->poseidon.signals[i] > mpd) {
+				// 	mpd = qp->m_rtt - qp->poseidon.signals[i];
+				// }
 
 				qp->poseidon.hop[i] = ih.hop[i];
 			}

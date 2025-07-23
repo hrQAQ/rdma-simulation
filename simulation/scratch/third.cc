@@ -975,11 +975,11 @@ int main(int argc, char *argv[])
 		if (n.Get(i)->GetNodeType() == 1){ // switch
 			Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));
 			// brownfield Setting Only ToR switch Enable INT capbility
-			if (i == 42 || i == 43 || i == 44 || i == 45) {
-				printf("Switch %d is configured with Brownfield enable INT\n", i);
-				sw->SetAttribute("CcMode", UintegerValue(cc_mode));
-			}
-			// sw->SetAttribute("CcMode", UintegerValue(cc_mode));
+			// if (i == 42 || i == 43 || i == 44 || i == 45) {
+			// 	printf("Switch %d is configured with Brownfield enable INT\n", i);
+			// 	sw->SetAttribute("CcMode", UintegerValue(cc_mode));
+			// }
+			sw->SetAttribute("CcMode", UintegerValue(cc_mode));
 			sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
 		}
 	}

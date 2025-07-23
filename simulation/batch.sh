@@ -21,16 +21,25 @@ ccname="poseidon"
 # poseidon_m_list=("0.01" "0.025" "0.05" "0.1" "0.25")
 # has_win_list=("0" "1")
 
-# brownfield setting:  need modift third.cc and rdma-hw.cc for brownfield switch and brownfield algorithm
-label="brownfield"
-exp_list=("trace_twoflow")
-topo_list=("topo_cross_dc_100G")
+label="" 
+exp_list=("trace_twoflow" "trace_convergence_dc" "trace_start_exit")
+topo_list=("topo_cross_dc_25G")
 md_strategy_list=("rtt")
-poseidon_m_list=("0.01" "0.025" "0.05" "0.1" "0.25")
+poseidon_m_list=("0.01" "0.025" "0.05" "0.1" "0.25" "0.5")
 has_win_list=("0" "1")
+
+
+# brownfield setting:  need modift third.cc and rdma-hw.cc for brownfield switch and brownfield algorithm
+# label="brownfield"
+# exp_list=("trace_twoflow")
+# topo_list=("topo_cross_dc_100G")
+# md_strategy_list=("rtt")
+# poseidon_m_list=("0.01" "0.025" "0.05" "0.1" "0.25")
+# has_win_list=("0" "1")
 
 declare -A bw_map=(
     ["topo_cross_dc_10G"]=10
+    ["topo_cross_dc_25G"]=25
     ["topo_cross_dc_100G"]=100
     ["topo_muti_hop"]=10
 )
