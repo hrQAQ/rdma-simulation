@@ -1,4 +1,4 @@
-rm ./data/*
+# rm ./data/*
 rm ./fct/*
 rm ./mpd/*
 rm ./rate/*
@@ -7,4 +7,3 @@ rm ./qlen/*
 rm ./signal/*
 rm ./smoothed_signal/*
 rm ./trace/*
-rm ./mix/config_topo*

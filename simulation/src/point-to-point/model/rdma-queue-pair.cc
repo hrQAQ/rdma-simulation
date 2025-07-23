@@ -143,7 +143,8 @@ uint64_t RdmaQueuePair::GetWin(){
 	if (m_var_win){
 		if (m_cc_mode == 11) {
 			// Poseidon does not assume the RTT is always 0.
-			w = m_rtt * 1e-9 / poseidon.m_curRate.CalculateTxTime(lastPktSize) * 1098.0;
+			// w = m_rtt * 1e-9 / poseidon.m_curRate.CalculateTxTime(lastPktSize) * 1098.0;
+			w = m_win * m_rate.GetBitRate() / m_max_rate.GetBitRate();
 		} else {
 			// HPCC assumes the RTT is always 0.
 			w = m_win * m_rate.GetBitRate() / m_max_rate.GetBitRate();

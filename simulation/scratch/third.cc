@@ -149,7 +149,7 @@ void ScheduleFlowInputs(){
 		}
 		RdmaClientHelper clientHelper(flow_input.pg, serverAddress[flow_input.src], serverAddress[flow_input.dst], port, flow_input.dport, flow_size, has_win?(global_t==1?maxBdp:pairBdp[n.Get(flow_input.src)][n.Get(flow_input.dst)]):0, global_t==1?maxRtt:pairRtt[flow_input.src][flow_input.dst]);
 		ApplicationContainer appCon = clientHelper.Install(n.Get(flow_input.src));
-		printf("src: %u, window: %u, basertt: %lu\n",flow_input.src, has_win?(global_t==1?maxBdp:pairBdp[n.Get(flow_input.src)][n.Get(flow_input.dst)]):0,global_t==1?maxRtt:pairRtt[flow_input.src][flow_input.dst]);
+		printf("src: %u, window: %lu, basertt: %lu\n",flow_input.src, has_win?(global_t==1?maxBdp:pairBdp[n.Get(flow_input.src)][n.Get(flow_input.dst)]):0,global_t==1?maxRtt:pairRtt[flow_input.src][flow_input.dst]);
 		appCon.Start(Time(0));
 		// get the next flow input
 		flow_input.idx++;
@@ -974,11 +974,12 @@ int main(int argc, char *argv[])
 	for (uint32_t i = 0; i < node_num; i++){
 		if (n.Get(i)->GetNodeType() == 1){ // switch
 			Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));
-			if (i == 13) {
-				printf("Switch %d is configured with Brownfield, not enable INT\n", i);
-				cc_mode = 0; // brownfield
+			// brownfield Setting Only ToR switch Enable INT capbility
+			if (i == 42 || i == 43 || i == 44 || i == 45) {
+				printf("Switch %d is configured with Brownfield enable INT\n", i);
+				sw->SetAttribute("CcMode", UintegerValue(cc_mode));
 			}
-			sw->SetAttribute("CcMode", UintegerValue(cc_mode));
+			// sw->SetAttribute("CcMode", UintegerValue(cc_mode));
 			sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
 		}
 	}

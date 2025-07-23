@@ -48,3 +48,4 @@ simulation/mix/pfc*
 simulation/mix/qlen*
 *.tr
 simulation/mix/gen/config*
+*.log

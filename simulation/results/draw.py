@@ -4,6 +4,8 @@ import os
 import sys
 from collections import deque
 
+font = {'family': 'Times new roman', 'weight': 'bold', 'size': '22'}
+
 def draw_from_file(filename, flow_mapping, signals_port_num, time_limit_low=None, time_limit_high=None):
     x_axis = [[] for _ in range(19)]
     y_axis = [[] for _ in range(19)]
@@ -69,7 +71,8 @@ def draw_from_file(filename, flow_mapping, signals_port_num, time_limit_low=None
     plotters.draw("line", y_axis, "./rate/"+filename+".png", x_axis=x_axis, 
                 xylabels=["Time (ms)", "Flow Rate (Gbps)"],
                 markersize=0, linewidth=1.5,
-                ylim = (-0.5*scale, 10.5*scale),
+                ylim = (-0.2*scale, 10.5*scale),
+                yticks=[0, 2.5*scale, 5*scale, 7.5*scale, 10*scale],
                 figure_size=(7, 5),
                 legends=["Flow {}".format(i) for i in range(non_empty_count)])
     non_empty_count = sum(1 for lst in y_mpd if lst)

@@ -844,6 +844,25 @@ void RdmaHw::HyperIncreaseMlx(Ptr<RdmaQueuePair> q){
 }
 
 /***********************
+ * Gear
+ ***********************/
+// void RdmaHw::HandleAckGear(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeader
+// &ch) {
+//   uint64_t seq = ch.ack.seq;
+//   bool fast_react = true;
+//   if (seq > qp->intcc.m_lastUpdateSeq) {
+//     fast_react = false;
+//   }
+//   if (IsDCFlow(qp, ch)) {
+//     UpdateRateIntra(qp, p, ch, fast_react);
+//   } else {
+//     UpdateRateCross(qp, p, ch, fast_react);
+//     // TODO: W = min(W, W_wan)
+//   }
+// }
+
+
+/***********************
  * Poseidon
  ***********************/
 #define PARA_P 525000
@@ -872,6 +891,7 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 	switch (m_exp_code)
 	{
 	case 4: // Config: mutihop experiment
+		printf("sip: %d ", sip);
 		read = read && (sip == 0);
         break;
 	default:
@@ -944,7 +964,7 @@ void RdmaHw::HandleAckPoseidon(Ptr<RdmaQueuePair> qp, Ptr<Packet> p, CustomHeade
 					mpd = qp->poseidon.signals[i];
 				}
 
-				// find the mpd of non-int rest path = E2E delay - MPD
+				// Brownfield Setting: find the mpd of non-int rest path = E2E delay - MPD
 				if (qp->m_rtt - qp->poseidon.signals[i] > mpd) {
 					mpd = qp->m_rtt - qp->poseidon.signals[i];
 				}
